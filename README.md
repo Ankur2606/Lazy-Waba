@@ -8,10 +8,10 @@
 🎭 **Acts Human:** Messages are sent via pixel-based automation, making it look like you actually typed them.  
 
 ### Strict Rules (Because Windows Said So)
-🚫 **Only allowed actions:** Move mouse, click, type, and press enter.  
-📍 **Coordinates matter**—window must stay fixed.  
-⏳ **Timing-sensitive** (delay calibration required).  
-🔍 **No native element detection**—pure pixel wizardry.  
+🚫 **Only allowed actions:**-> Move mouse, click, type, and press enter.  
+📍 **Coordinates matter**-> window must stay fixed.  
+⏳ **Timing-sensitive**-> (delay calibration required).  
+🔍 **No native element detection**-> pure pixel wizardry.  
 
 ### Behind the Scenes (Workflow)
 1️⃣ OCR detects a new message.  
