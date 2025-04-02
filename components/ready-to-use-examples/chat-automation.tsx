@@ -90,18 +90,19 @@ const ChatAutomation: React.FC = () => {
     }
   };
 
-  const startMonitoring = () => {
+  const startMonitoring =async() => {
     console.log("startMonitoring called for app:", selectedApp);
     addLog(`Starting monitoring for ${selectedApp} in 10 seconds...`);
     setIsMonitoring(true);
 
     // Wait 10 seconds before starting monitoring
     console.log("Setting timeout for 10 seconds before monitoring begins");
-    monitoringTimerRef.current = setTimeout(() => {
+    await pipe.operator.openApplication("Whatsapp")
+    monitoringTimerRef.current = setTimeout(async() => {
       console.log("10-second timeout completed, starting actual monitoring");
       addLog("Now beginning chat monitoring");
       monitorChat();
-    }, 10000);
+    }, 1000);
   };
 
   const stopMonitoring = () => {
@@ -293,8 +294,12 @@ const ChatAutomation: React.FC = () => {
       console.error("Error in OCR processing:", err);
       addLog(`OCR error: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
-
-    // Continue monitoring loop
+   
+    await pipe.operator.pixel.moveMouse(720, 800)
+    await pipe.operator.pixel.click("left")
+    await pipe.operator.pixel.type("hello world")
+    await pipe.operator.pixel.press("enter")
+    await pipe.operator.pixel.press("enter")
     console.log("Setting up next monitoring cycle in 5 seconds");
     monitoringTimerRef.current = setTimeout(() => {
       console.log("5-second timeout completed, checking if monitoring should continue");
