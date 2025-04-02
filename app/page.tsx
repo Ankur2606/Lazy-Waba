@@ -19,11 +19,9 @@ export default function Page() {
           className={`flex flex-col gap-6 items-center justify-center h-full mt-12 px-4 pb-12 ${inter.className}`}
         >
           <h1 className="text-2xl font-bold mb-0">
-            Chat Automation Example
+            Lazy Waba 
           </h1>
-          <p className="text-gray-600 mb-6 -mt-2">
-            Ready-to-use components for engineers building apps with screenpipe
-          </p>
+
 
           <div className="w-full max-w-3xl">
             <ChatAutomation />
