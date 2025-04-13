@@ -10,11 +10,11 @@ import { useNebius } from "@/hooks/use-nebius";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
+import open from 'open';
 // App coordinates configuration
 const APP_CONFIGS = {
   whatsapp: {
-    inputBox: { x: 650, y: 680 },
+    inputBox: { x: 1300, y: 680 },
     sendButton: { x: 720, y: 680 },
   },
   discord: {
@@ -35,9 +35,17 @@ const ChatAutomation: React.FC = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [lastMessage, setLastMessage] = useState("");
   const [lastOcrText, setLastOcrText] = useState("");
+  const [previousOcrText, setPreviousOcrText] = useState(""); // Store previous OCR scan for comparison
   const [logs, setLogs] = useState<{ time: string; message: string }[]>([]);
   const messageHistory = useRef<string[]>([]);
   const monitoringTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const monitoringRef = useRef(false);
+  // Add processing flags to prevent pipeline overlap
+  const processingMessageRef = useRef(false);
+  // Add a ref to track AI's last response for self-message detection
+  const lastAIResponseRef = useRef<string>("");
+  // Username for message identification
+  const [myUsername, setMyUsername] = useLocalStorage<string>("myUsername", "You");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
   // Health status state
@@ -80,6 +88,26 @@ const ChatAutomation: React.FC = () => {
       return newLogs.slice(-10); // Keep only last 10 logs
     });
   };
+  //Open Whatsapp Desktop
+  // Replace your existing openWhatsAppDesktop function with:
+  const openWhatsAppDesktop = async () => {
+    try {
+      addLog("Attempting to launch WhatsApp Desktop...");
+      const response = await fetch('/api/open-whatsapp', {
+        method: 'POST'
+      }); 
+      const data = await response.json();
+      if (data.success) {
+        addLog("WhatsApp Desktop launch request sent successfully");
+      } 
+      else {
+        addLog(`Error launching WhatsApp: ${data.error}`);
+      }
+    } 
+    catch (error) {
+      addLog(`Error launching WhatsApp: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  };
 
   const toggleMonitoring = () => {
     console.log("toggleMonitoring called, current state:", isMonitoring);
@@ -92,21 +120,27 @@ const ChatAutomation: React.FC = () => {
 
   const startMonitoring = () => {
     console.log("startMonitoring called for app:", selectedApp);
+    addLog("Opening WhatsApp Desktop...");
+    openWhatsAppDesktop(); // Open WhatsApp Desktop
     addLog(`Starting monitoring for ${selectedApp} in 10 seconds...`);
+    
+    // Update both state and ref
     setIsMonitoring(true);
-
+    monitoringRef.current = true;
+    
     // Wait 10 seconds before starting monitoring
     console.log("Setting timeout for 10 seconds before monitoring begins");
     monitoringTimerRef.current = setTimeout(() => {
       console.log("10-second timeout completed, starting actual monitoring");
       addLog("Now beginning chat monitoring");
       monitorChat();
-    }, 10000);
+    }, 10000); // 10 seconds for the app to open
   };
 
   const stopMonitoring = () => {
     console.log("stopMonitoring called");
     setIsMonitoring(false);
+    monitoringRef.current = false; // Update the ref
     if (monitoringTimerRef.current) {
       console.log("Clearing monitoring timeout/interval");
       clearTimeout(monitoringTimerRef.current);
@@ -114,41 +148,67 @@ const ChatAutomation: React.FC = () => {
     addLog(`Stopped monitoring ${selectedApp}`);
   };
 
-  const detectNewMessages = (text: string) => {
-    console.log("detectNewMessages called with text length:", text?.length);
-    if (!text || text === lastOcrText) {
-      console.log("Text unchanged or empty, skipping detection");
+  // New method using AI to analyze conversation changes
+  const analyzeConversationChanges = async (currentText: string) => {
+    console.log("analyzeConversationChanges called");
+    if (!currentText || currentText === lastOcrText) {
+      console.log("Text unchanged or empty, skipping analysis");
       return;
     }
 
-    setLastOcrText(text);
+    // Store current text for next comparison
+    const prevText = lastOcrText;
+    setLastOcrText(currentText);
+    
+    // If we don't have previous text, just store this as baseline
+    if (!prevText) {
+      console.log("No previous text to compare, storing as baseline");
+      setPreviousOcrText(currentText);
+      return;
+    }
 
-    // Extract the last paragraph as the message
-    const messageBlocks = text.split(/\n{2,}/);
-    console.log("Split message blocks, count:", messageBlocks.length);
-    const lastBlock = messageBlocks[messageBlocks.length - 1].trim();
-
-    console.log("Last message block:", lastBlock);
-    console.log("Is new message?", lastBlock !== lastMessage);
-    console.log("Already in history?", messageHistory.current.includes(lastBlock));
-
-    if (lastBlock && lastBlock !== lastMessage && !messageHistory.current.includes(lastBlock)) {
-      console.log("New message detected, processing response");
-      setLastMessage(lastBlock);
-      messageHistory.current.push(lastBlock);
+    addLog("Analyzing conversation with AI...");
+    
+    try {
+      // Use appropriate AI provider to analyze the conversation
+      const analysis = aiProvider === "ollama" 
+        ? await ollama.analyzeConversation(prevText, currentText, myUsername)
+        : await nebius.analyzeConversation(prevText, currentText, myUsername);
       
-      // Add to chat history
-      const newMessage: ChatMessage = {
-        role: 'user',
-        content: lastBlock,
-        timestamp: Date.now()
-      };
+      console.log("AI analysis result:", analysis);
       
-      setChatHistory(prev => [...prev, newMessage]);
-      addLog(`New message: "${lastBlock.substring(0, 30)}${lastBlock.length > 30 ? "..." : ""}"`);
-      generateAndSendResponse(lastBlock);
-    } else {
-      console.log("Message ignored - either empty, duplicate, or already processed");
+      if (analysis.newMessageDetected && analysis.shouldReply) {
+        addLog(`AI detected new message from ${analysis.sender || "someone"}`);
+        
+        // Process the detected message
+        const newMessage = analysis.message;
+        
+        // Add to state and history
+        setLastMessage(newMessage);
+        messageHistory.current.push(newMessage);
+        
+        // Create chat message 
+        const chatMsg: ChatMessage = {
+          role: 'user',
+          content: newMessage,
+          timestamp: Date.now()
+        };
+        
+        setChatHistory(prev => [...prev, chatMsg]);
+        
+        // Set processing flag and generate response
+        processingMessageRef.current = true;
+        generateAndSendResponse(newMessage);
+      } else {
+        if (analysis.newMessageDetected) {
+          addLog(`Message detected but AI decided not to reply: ${analysis.reasoning}`);
+        } else {
+          addLog("No new messages to respond to");
+        }
+      }
+    } catch (err) {
+      console.error("Error in conversation analysis:", err);
+      addLog(`Analysis error: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 
@@ -181,6 +241,9 @@ const ChatAutomation: React.FC = () => {
         }
       }
 
+      // Store the AI response to prevent responding to our own messages
+      lastAIResponseRef.current = response;
+      
       addLog(`Response: "${response.substring(0, 30)}${response.length > 30 ? "..." : ""}"`);
 
       // Add response to chat history
@@ -192,17 +255,25 @@ const ChatAutomation: React.FC = () => {
       
       setChatHistory(prev => [...prev, newMessage]);
 
-      // Send the response if still monitoring
-      if (isMonitoring) {
+      // Send the response if still monitoring - use monitoringRef instead of isMonitoring
+      if (monitoringRef.current) {
         console.log("Still monitoring, sending response");
         await sendResponse(response);
-        messageHistory.current.push(`AI: ${response}`);
+        messageHistory.current.push(`${myUsername}: ${response}`);
+        
+        // Add a 4-second cooldown after sending response before resuming monitoring
+        addLog("Adding 4-second cooldown before resuming monitoring");
+        await new Promise(resolve => setTimeout(resolve, 4000));
       } else {
         console.log("Monitoring stopped, not sending response");
       }
     } catch (err) {
       console.error("Error in generateAndSendResponse:", err);
       addLog(`Error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      // Reset processing flag regardless of success or failure
+      console.log("Message processing completed, resetting processing flag");
+      processingMessageRef.current = false;
     }
   };
 
@@ -217,15 +288,18 @@ const ChatAutomation: React.FC = () => {
       await pipe.operator.pixel.moveMouse(config.inputBox.x, config.inputBox.y);
       await new Promise((resolve) => setTimeout(resolve, 300));
       console.log("Clicking input box");
-      await pipe.operator.pixel.click("left");
-
-      // Triple click to select all text
-      console.log("Triple-clicking to select all text");
+      // await pipe.operator.pixel.click("left");
       await new Promise((resolve) => setTimeout(resolve, 300));
-      for (let i = 0; i < 3; i++) {
-        await pipe.operator.pixel.click("left");
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      // await pipe.operator.pixel.click("");
+
+     
+      // // Triple click to select all text
+      // console.log("Triple-clicking to select all text");
+      // await new Promise((resolve) => setTimeout(resolve, 300));
+      // for (let i = 0; i < 3; i++) {
+      //   await pipe.operator.pixel.click("left");
+      //   await new Promise((resolve) => setTimeout(resolve, 100));
+      // }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -236,19 +310,22 @@ const ChatAutomation: React.FC = () => {
       for (const chunk of chunks) {
         console.log("Typing chunk:", chunk);
         await pipe.operator.pixel.type(chunk);
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
       // Click send button
-      console.log("Moving mouse to send button:", config.sendButton);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await pipe.operator.pixel.moveMouse(config.sendButton.x, config.sendButton.y);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      console.log("Clicking send button");
-      await pipe.operator.pixel.click("left");
+      // console.log("Moving mouse to send button:", config.sendButton);
+      // await new Promise((resolve) => setTimeout(resolve, 500));
+      // await pipe.operator.pixel.moveMouse(config.sendButton.x, config.sendButton.y);
+      // await new Promise((resolve) => setTimeout(resolve, 300));
+      // console.log("Clicking send button");
+      await pipe.operator.pixel.press("enter");
 
       console.log("Response sent successfully");
       addLog("Response sent successfully");
+      addLog("Waiting for 10 seconds before resuming monitoring");
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      // Wait for 10 seconds before resuming monitoring
     } catch (err) {
       console.error("Error in sendResponse:", err);
       addLog(`Error sending: ${err instanceof Error ? err.message : "Unknown error"}`);
@@ -256,9 +333,22 @@ const ChatAutomation: React.FC = () => {
   };
 
   const monitorChat = async () => {
-    console.log("monitorChat called, isMonitoring:", isMonitoring);
-    if (!isMonitoring) {
+    console.log("monitorChat called, isMonitoring:", monitoringRef.current);
+    // Check the ref, not the state variable, to get the most up-to-date value
+    if (!monitoringRef.current) {
       console.log("Monitoring is off, exiting monitorChat");
+      return;
+    }
+
+    // If we're currently processing a message, wait until it's done
+    if (processingMessageRef.current) {
+      console.log("Message processing in progress, waiting before starting next cycle");
+      addLog("Waiting for current message processing to complete...");
+      // Skip this cycle and wait for the next one
+      monitoringTimerRef.current = setTimeout(() => {
+        console.log("Checking again if message processing is complete");
+        monitorChat();
+      }, 2000); // Check again in 2 seconds
       return;
     }
 
@@ -280,7 +370,7 @@ const ChatAutomation: React.FC = () => {
         if (text) {
           console.log("OCR text found, length:", text.length);
           addLog(`OCR text captured (${text.length} chars)`);
-          detectNewMessages(text);
+          analyzeConversationChanges(text);
         } else {
           console.log("No text content in OCR data");
           addLog("No text content in OCR data");
@@ -294,11 +384,12 @@ const ChatAutomation: React.FC = () => {
       addLog(`OCR error: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
 
-    // Continue monitoring loop
+    // Continue monitoring loop, but only if we're not processing a message
     console.log("Setting up next monitoring cycle in 5 seconds");
     monitoringTimerRef.current = setTimeout(() => {
       console.log("5-second timeout completed, checking if monitoring should continue");
-      if (isMonitoring) {
+      // Check the ref here too, not the state variable
+      if (monitoringRef.current) {
         console.log("Monitoring is still on, continuing to next cycle");
         monitorChat();
       } else {
@@ -518,6 +609,21 @@ const ChatAutomation: React.FC = () => {
             )}
           </div>
 
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Configure Chat Identity</h3>
+            <div className="flex gap-2">
+              <Input
+                value={myUsername}
+                onChange={(e) => setMyUsername(e.target.value)}
+                placeholder="Your chat username"
+                className="flex-1"
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Enter your username as it appears in the chat for better message detection
+            </p>
+          </div>
+
           <Button 
             variant="default"
             size="sm"
@@ -612,7 +718,7 @@ const ChatAutomation: React.FC = () => {
                   if (text) {
                     addLog(`Manual OCR successful: ${text.length} chars`);
                     setLastOcrText(text);
-                    detectNewMessages(text);
+                    analyzeConversationChanges(text);
                   }
                 }
               }}

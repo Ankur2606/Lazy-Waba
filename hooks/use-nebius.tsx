@@ -135,10 +135,10 @@ export function useNebius(defaultOptions: NebiusOptions) {
     setError(null);
     
     try {
-      let systemPrompt = "You are a friendly, helpful assistant engaged in a chat conversation. Keep your responses conversational, concise, and directly relevant to the question.";
+      let systemPrompt = "You're a friendly human friend responding on WhatsApp. Be conversational, humorous, and concise. Use occasional puns and emojis sparingly. Keep responses short (1-3 sentences max). Make jokes when appropriate. Focus ONLY on responding to WhatsApp messages in the OCR and ignore anything else like UI elements. Act natural as if you're my replacement chatting with a friend. Avoid sounding robotic or overly formal.";
       
       if (ocrContext) {
-        systemPrompt += ` You can see the following content in the chat window: "${ocrContext.text}" - use this information to provide context-aware responses.`;
+        systemPrompt += ` I can see the following WhatsApp chat: "${ocrContext.text}" - Only respond to actual messages from others, ignore UI elements or system notifications. Stay in character as a human friend.`;
       }
       
       const messages = [
@@ -240,6 +240,89 @@ Analyze this content and extract:
     }
   }, [callNebius]);
 
+  // Add new function for conversation analysis
+  const analyzeConversation = useCallback(async (
+    previousOcrText: string,
+    currentOcrText: string,
+    myUsername: string
+  ) => {
+    setIsProcessing(true);
+    setError(null);
+    
+    try {
+      const systemPrompt = `You are analyzing WhatsApp conversation for a chat automation system. Compare the previous OCR text with the current OCR text and determine:
+1. If there's a new message from someone other than "${myUsername}" (who is the user you're impersonating)
+2. If so, extract that new message and the sender's name
+3. ONLY respond with new messages sent by others, never with messages sent by "${myUsername}"
+
+Return your analysis as JSON in this format:
+{
+  "newMessageDetected": boolean,
+  "shouldReply": boolean,
+  "message": "the new message text if any",
+  "sender": "the sender's name",
+  "reasoning": "brief explanation of your decision"
+}
+
+If there are multiple new messages, focus on the most recent one. Include any context about the conversation that would help generate an appropriate response.`;
+      
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Previous OCR text:\n\n${previousOcrText}\n\n---\n\nCurrent OCR text:\n\n${currentOcrText}` }
+      ];
+
+      const response = await fetch('/api/nebius/generate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${defaultOptions.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          messages: messages,
+          temperature: 0.1, // Lower temperature for more factual/analytical response
+          max_tokens: 1000
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to analyze conversation');
+      }
+
+      const data = await response.json();
+      const analysisText = data.choices[0].message.content;
+      
+      // Try to parse the response as JSON
+      try {
+        // Extract JSON object if embedded in markdown or text
+        const jsonMatch = analysisText.match(/```json\s*([\s\S]*?)\s*```/) || 
+                         analysisText.match(/{[\s\S]*}/);
+                         
+        const jsonStr = jsonMatch ? jsonMatch[0].replace(/```json|```/g, '') : analysisText;
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.error("Failed to parse conversation analysis as JSON:", e);
+        // Return a default structured response using the text
+        return {
+          newMessageDetected: analysisText.toLowerCase().includes("new message detected") || 
+                             analysisText.toLowerCase().includes("should reply"),
+          shouldReply: analysisText.toLowerCase().includes("should reply") || 
+                       analysisText.toLowerCase().includes("new message detected"),
+          message: analysisText,
+          sender: "unknown",
+          reasoning: "Failed to parse structured response"
+        };
+      }
+    } catch (error) {
+      console.error('Conversation analysis failed:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [currentModel, defaultOptions.apiKey]);
+
   return {
     isProcessing,
     error,
@@ -251,6 +334,7 @@ Analyze this content and extract:
     // Chat-specific functions
     generateChatResponse,
     analyzeOCRText,
-    suggestReplies
+    suggestReplies,
+    analyzeConversation // Add the new function to the return value
   };
 }

@@ -110,26 +110,19 @@ export function useOllama(defaultOptions: OllamaOptions = {}) {
     setError(null);
     
     try {
-      // Format the chat history and OCR context into a prompt
-      let prompt = "You are a friendly assistant responding in a chat conversation. Be helpful, concise, and conversational.\n\n";
+      let systemPrompt = "You're a friendly human friend responding on WhatsApp. Be conversational, humorous, and concise. Use occasional puns and emojis sparingly. Keep responses short (1-3 sentences max). Make jokes when appropriate. Focus ONLY on responding to WhatsApp messages in the OCR and ignore anything else like UI elements. Act natural as if you're my replacement chatting with a friend. Avoid sounding robotic or overly formal.";
       
-      // Add OCR context if available
       if (ocrContext) {
-        prompt += `I can see this content in the chat window: ${ocrContext.text}\n\n`;
+        systemPrompt += ` I can see the following WhatsApp chat: "${ocrContext.text}" - Only respond to actual messages from others, ignore UI elements or system notifications. Stay in character as a human friend.`;
       }
       
-      // Add chat history
-      prompt += "Chat history:\n";
-      chatHistory.forEach(msg => {
-        const role = msg.role === 'assistant' ? 'Assistant' : 'Person';
-        prompt += `${role}: ${msg.content}\n`;
-      });
-      
-      // Add the current user message
-      prompt += `Person: ${userMessage}\n`;
-      prompt += "Assistant:";
-      
-      const response = await callOllama(prompt);
+      const messages = [
+        { role: "system", content: systemPrompt },
+        ...chatHistory.map(msg => ({ role: msg.role, content: msg.content })),
+        { role: "user", content: userMessage }
+      ];
+
+      const response = await callOllama(JSON.stringify(messages));
       return response.trim();
     } finally {
       setIsProcessing(false);
@@ -200,6 +193,67 @@ Analyze this content and extract:
     }
   }, [callOllama]);
 
+  const analyzeConversation = useCallback(async (
+    previousOcrText: string,
+    currentOcrText: string,
+    myUsername: string
+  ) => {
+    setIsProcessing(true);
+    setError(null);
+    
+    try {
+      const prompt = `You are analyzing WhatsApp conversation for a chat automation system. Compare the previous OCR text with the current OCR text and determine:
+1. If there's a new message from someone other than "${myUsername}" (who is the user you're impersonating)
+2. If so, extract that new message and the sender's name
+3. ONLY respond with new messages sent by others, never with messages sent by "${myUsername}"
+
+Return your analysis as JSON in this format:
+{
+  "newMessageDetected": boolean,
+  "shouldReply": boolean,
+  "message": "the new message text if any",
+  "sender": "the sender's name",
+  "reasoning": "brief explanation of your decision"
+}
+
+If there are multiple new messages, focus on the most recent one. Include any context about the conversation that would help generate an appropriate response.
+
+Previous OCR text:
+${previousOcrText}
+
+---
+
+Current OCR text:
+${currentOcrText}`;
+      
+      const analysisText = await callOllama(prompt);
+      
+      // Try to parse the response as JSON
+      try {
+        // Extract JSON object if embedded in markdown or text
+        const jsonMatch = analysisText.match(/```json\s*([\s\S]*?)\s*```/) || 
+                         analysisText.match(/{[\s\S]*}/);
+                         
+        const jsonStr = jsonMatch ? jsonMatch[0].replace(/```json|```/g, '') : analysisText;
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.error("Failed to parse conversation analysis as JSON:", e);
+        // Return a default structured response using the text
+        return {
+          newMessageDetected: analysisText.toLowerCase().includes("new message detected") || 
+                             analysisText.toLowerCase().includes("should reply"),
+          shouldReply: analysisText.toLowerCase().includes("should reply") || 
+                       analysisText.toLowerCase().includes("new message detected"),
+          message: analysisText,
+          sender: "unknown",
+          reasoning: "Failed to parse structured response"
+        };
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [callOllama]);
+
   return {
     isProcessing,
     error,
@@ -211,6 +265,7 @@ Analyze this content and extract:
     // Chat-specific functions
     generateChatResponse,
     analyzeOCRText,
-    suggestReplies
+    suggestReplies,
+    analyzeConversation
   };
 }
