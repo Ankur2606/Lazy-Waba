@@ -11,6 +11,9 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import open from 'open';
+// Add import for the WhatsApp OCR monitoring system
+import { monitorWhatsAppConversations } from "@/lib/whatsapp-ocr-monitor";
+
 // App coordinates configuration
 const APP_CONFIGS = {
   whatsapp: {
@@ -44,6 +47,10 @@ const ChatAutomation: React.FC = () => {
   const processingMessageRef = useRef(false);
   // Add a ref to track AI's last response for self-message detection
   const lastAIResponseRef = useRef<string>("");
+  // Track if initial greeting has been sent
+  const initialGreetingSentRef = useRef<boolean>(false);
+  // Timer for initial greeting
+  const initialGreetingTimerRef = useRef<NodeJS.Timeout | null>(null);
   // Username for message identification
   const [myUsername, setMyUsername] = useLocalStorage<string>("myUsername", "You");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -88,8 +95,11 @@ const ChatAutomation: React.FC = () => {
       return newLogs.slice(-10); // Keep only last 10 logs
     });
   };
+
+  // Track the WhatsApp monitor instance
+  const [whatsappMonitor, setWhatsappMonitor] = useState(null);
+
   //Open Whatsapp Desktop
-  // Replace your existing openWhatsAppDesktop function with:
   const openWhatsAppDesktop = async () => {
     try {
       addLog("Attempting to launch WhatsApp Desktop...");
@@ -109,15 +119,7 @@ const ChatAutomation: React.FC = () => {
     }
   };
 
-  const toggleMonitoring = () => {
-    console.log("toggleMonitoring called, current state:", isMonitoring);
-    if (isMonitoring) {
-      stopMonitoring();
-    } else {
-      startMonitoring();
-    }
-  };
-
+  // Updated startMonitoring function to use our WhatsApp-specific OCR monitor
   const startMonitoring = () => {
     console.log("startMonitoring called for app:", selectedApp);
     addLog("Opening WhatsApp Desktop...");
@@ -133,55 +135,203 @@ const ChatAutomation: React.FC = () => {
     monitoringTimerRef.current = setTimeout(() => {
       console.log("10-second timeout completed, starting actual monitoring");
       addLog("Now beginning chat monitoring");
-      monitorChat();
+      
+      if (selectedApp === "whatsapp") {
+        // Use our dedicated WhatsApp OCR monitor
+        startWhatsAppMonitoring();
+      } else {
+        // Use the original approach for other apps
+        monitorChat();
+      }
     }, 10000); // 10 seconds for the app to open
   };
 
+  // Stop monitoring with WhatsApp monitor support
   const stopMonitoring = () => {
     console.log("stopMonitoring called");
     setIsMonitoring(false);
     monitoringRef.current = false; // Update the ref
+    
+    // Stop the WhatsApp monitor if active
+    if (whatsappMonitor) {
+      whatsappMonitor.stop();
+      setWhatsappMonitor(null);
+    }
+    
+    // Clear any timers
     if (monitoringTimerRef.current) {
       console.log("Clearing monitoring timeout/interval");
       clearTimeout(monitoringTimerRef.current);
     }
+    
     addLog(`Stopped monitoring ${selectedApp}`);
   };
 
+  // New function to start WhatsApp-specific monitoring
+  const startWhatsAppMonitoring = () => {
+    // Reset the initial greeting flag
+    initialGreetingSentRef.current = false;
+    
+    // Take initial OCR to establish baseline
+    addLog("Taking initial OCR snapshot of WhatsApp");
+    
+    pipe.queryScreenpipe({
+      contentType: "ocr",
+      windowName: "WhatsApp",
+      limit: 1,
+    }).then(result => {
+      if (result?.data?.length > 0) {
+        const initialText = result.data[0].content?.text || "";
+        setLastOcrText(initialText);
+        setPreviousOcrText(initialText); // Store as previous OCR text too
+        addLog(`Established baseline OCR (${initialText.length} chars)`);
+        
+        // Now start the WhatsApp monitoring with our dedicated utility
+        addLog("Starting dedicated WhatsApp OCR monitoring");
+        
+        const monitor = monitorWhatsAppConversations({
+          pollingIntervalMs: 5000,     // Check every 5 seconds
+          timeWindowMs: 30000,         // Look back 30 seconds for changes
+          limit: 1,                    // Just get the most recent result
+          initialBaselineText: initialText, // Use the initial OCR as baseline
+          
+          onNewOcrDetected: (text, timestamp, previousText) => {
+            console.log(`New WhatsApp OCR detected at ${new Date(timestamp).toLocaleTimeString()}`);
+            addLog(`New WhatsApp content detected (${text.length} chars)`);
+            
+            // Store previous text for comparison
+            setPreviousOcrText(previousText);
+            
+            // Process the OCR text to detect and respond to messages
+            analyzeConversationChanges(text, previousText);
+          },
+          
+          onError: (error) => {
+            console.error("WhatsApp monitor error:", error);
+            addLog(`WhatsApp monitoring error: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        });
+        
+        // Store the monitor for later cleanup
+        setWhatsappMonitor(monitor);
+
+        // Set a timer to send an initial greeting if no activity is detected
+        // This will help start the conversation if it's quiet
+        if (initialGreetingTimerRef.current) {
+          clearTimeout(initialGreetingTimerRef.current);
+        }
+        
+        initialGreetingTimerRef.current = setTimeout(() => {
+          // Only send initial greeting if we haven't already sent one
+          // and we're not currently processing another message
+          if (monitoringRef.current && 
+              !initialGreetingSentRef.current && 
+              !processingMessageRef.current) {
+            sendInitialGreeting(initialText);
+          }
+        }, 30000); // Wait 30 seconds before sending initial greeting
+        
+      } else {
+        addLog("Failed to establish baseline OCR, falling back to regular monitoring");
+        monitorChat();
+      }
+    }).catch(error => {
+      console.error("Error establishing baseline:", error);
+      addLog(`Error establishing baseline: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Fall back to regular monitoring
+      monitorChat();
+    });
+  };
+
+  // Adding toggleMonitoring function to fix the runtime error
+  const toggleMonitoring = () => {
+    console.log("toggleMonitoring called, current state:", isMonitoring);
+    if (isMonitoring) {
+      stopMonitoring();
+    } else {
+      startMonitoring();
+    }
+  };
+
   // New method using AI to analyze conversation changes
-  const analyzeConversationChanges = async (currentText: string) => {
+  const analyzeConversationChanges = async (currentText: string, previousText?: string) => {
     console.log("analyzeConversationChanges called");
-    if (!currentText || currentText === lastOcrText) {
-      console.log("Text unchanged or empty, skipping analysis");
+    if (!currentText) {
+      console.log("Empty text, skipping analysis");
+      return;
+    }
+    
+    // If we're processing a message, don't analyze to avoid overlaps
+    if (processingMessageRef.current) {
+      console.log("Already processing a message, skipping analysis");
+      return;
+    }
+    
+    // If no explicit previous text is provided, use the stored previousOcrText
+    previousText = previousText || previousOcrText;
+    
+    // If they're identical, no need to analyze
+    if (currentText === previousText) {
+      console.log("Text unchanged, skipping analysis");
       return;
     }
 
-    // Store current text for next comparison
-    const prevText = lastOcrText;
+    // Store current text for future comparisons
     setLastOcrText(currentText);
     
-    // If we don't have previous text, just store this as baseline
-    if (!prevText) {
-      console.log("No previous text to compare, storing as baseline");
+    // If we still don't have previous text, just store this as baseline and exit
+    if (!previousText) {
+      console.log("No previous text available, storing current as baseline");
       setPreviousOcrText(currentText);
       return;
     }
 
-    addLog("Analyzing conversation with AI...");
+    addLog("Analyzing conversation changes with AI...");
     
     try {
+      // Get the last AI response for context
+      const lastResponse = lastAIResponseRef.current;
+      
+      // Build recent chat history context
+      const recentMessages = chatHistory
+        .slice(-4) // Get last 4 messages for context
+        .map(msg => `${msg.role === 'assistant' ? 'AI' : 'User'}: ${msg.content}`)
+        .join('\n');
+      
+      console.log("Last AI response for context:", lastResponse?.substring(0, 50) + (lastResponse?.length > 50 ? "..." : ""));
+      
       // Use appropriate AI provider to analyze the conversation
       const analysis = aiProvider === "ollama" 
-        ? await ollama.analyzeConversation(prevText, currentText, myUsername)
-        : await nebius.analyzeConversation(prevText, currentText, myUsername);
+        ? await ollama.analyzeConversation(
+            previousText, 
+            currentText, 
+            myUsername,
+            lastResponse, 
+            recentMessages
+          )
+        : await nebius.analyzeConversation(
+            previousText, 
+            currentText, 
+            myUsername,
+            lastResponse,
+            recentMessages
+          );
       
       console.log("AI analysis result:", analysis);
       
       if (analysis.newMessageDetected && analysis.shouldReply) {
-        addLog(`AI detected new message from ${analysis.sender || "someone"}`);
+        addLog(`AI detected new message from ${analysis.sender || "someone"}: "${analysis.message.substring(0, 30)}${analysis.message.length > 30 ? '...' : ''}"`);
         
         // Process the detected message
         const newMessage = analysis.message;
+        
+        // Make sure this isn't our own message being reflected back
+        if (lastResponse && newMessage.includes(lastResponse)) {
+          console.log("Detected message appears to be our own response, skipping");
+          addLog("Detected message appears to be our own response, skipping");
+          return;
+        }
         
         // Add to state and history
         setLastMessage(newMessage);
@@ -203,7 +353,7 @@ const ChatAutomation: React.FC = () => {
         if (analysis.newMessageDetected) {
           addLog(`Message detected but AI decided not to reply: ${analysis.reasoning}`);
         } else {
-          addLog("No new messages to respond to");
+          addLog("No new messages requiring response");
         }
       }
     } catch (err) {
@@ -332,6 +482,70 @@ const ChatAutomation: React.FC = () => {
     }
   };
 
+  // Function to send an initial greeting message when no conversation is detected
+  const sendInitialGreeting = async (ocrText: string) => {
+    // Only proceed if we're still monitoring and haven't sent a greeting yet
+    if (!monitoringRef.current || initialGreetingSentRef.current || processingMessageRef.current) {
+      return;
+    }
+    
+    addLog("No conversation detected. Sending initial greeting...");
+    
+    try {
+      // Set flags to prevent duplicate greetings
+      initialGreetingSentRef.current = true;
+      processingMessageRef.current = true;
+      
+      // Create OCR context for AI to analyze conversation context
+      const ocrContext = {
+        text: ocrText,
+        confidence: 0.9
+      };
+      
+      // Generate a context-aware greeting
+      let greeting = "";
+      if (aiProvider === "ollama") {
+        greeting = await ollama.generateInitialGreeting(ocrText);
+      } else {
+        greeting = await nebius.generateInitialGreeting(ocrText);
+      }
+      
+      // Make sure we got a valid greeting
+      if (!greeting || greeting.trim().length === 0) {
+        greeting = "Hey there! 👋 How's your day going?";
+      }
+      
+      // Store as the last AI response to prevent loop
+      lastAIResponseRef.current = greeting;
+      
+      // Add to chat history
+      const newMessage: ChatMessage = {
+        role: 'assistant',
+        content: greeting,
+        timestamp: Date.now()
+      };
+      
+      setChatHistory(prev => [...prev, newMessage]);
+      
+      // Send the greeting
+      addLog(`Sending initial greeting: "${greeting.substring(0, 30)}${greeting.length > 30 ? '...' : ''}"`);
+      await sendResponse(greeting);
+      
+      // Add to message history
+      messageHistory.current.push(`${myUsername}: ${greeting}`);
+      
+      // Add extra delay after sending initial greeting
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+    } catch (err) {
+      console.error("Error sending initial greeting:", err);
+      addLog(`Error sending greeting: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      // Reset processing flag
+      processingMessageRef.current = false;
+    }
+  };
+
   const monitorChat = async () => {
     console.log("monitorChat called, isMonitoring:", monitoringRef.current);
     // Check the ref, not the state variable, to get the most up-to-date value
@@ -360,6 +574,7 @@ const ChatAutomation: React.FC = () => {
       console.log("Calling pipe.queryScreenpipe for OCR data");
       const result = await pipe.queryScreenpipe({
         contentType: "ocr",
+        
         limit: 1,
       });
       console.log("OCR API response received:", result);

@@ -135,7 +135,7 @@ export function useNebius(defaultOptions: NebiusOptions) {
     setError(null);
     
     try {
-      let systemPrompt = "You're a friendly human friend responding on WhatsApp. Be conversational, humorous, and concise. Use occasional puns and emojis sparingly. Keep responses short (1-3 sentences max). Make jokes when appropriate. Focus ONLY on responding to WhatsApp messages in the OCR and ignore anything else like UI elements. Act natural as if you're my replacement chatting with a friend. Avoid sounding robotic or overly formal.";
+      let systemPrompt = "You're a friendly human friend responding on WhatsApp. Be conversational, humorous, and concise. Use abbreviations used by genz. Keep responses short (1-3 sentences max). Make jokes when appropriate. Focus ONLY on responding to WhatsApp messages in the OCR and ignore anything else like UI elements. Act natural as if you're my replacement chatting with a friend. Avoid sounding robotic or overly formal.";
       
       if (ocrContext) {
         systemPrompt += ` I can see the following WhatsApp chat: "${ocrContext.text}" - Only respond to actual messages from others, ignore UI elements or system notifications. Stay in character as a human friend.`;
@@ -240,31 +240,48 @@ Analyze this content and extract:
     }
   }, [callNebius]);
 
-  // Add new function for conversation analysis
   const analyzeConversation = useCallback(async (
     previousOcrText: string,
     currentOcrText: string,
-    myUsername: string
+    myUsername: string,
+    lastAIResponse?: string,
+    recentChatHistory?: string
   ) => {
     setIsProcessing(true);
     setError(null);
     
     try {
-      const systemPrompt = `You are analyzing WhatsApp conversation for a chat automation system. Compare the previous OCR text with the current OCR text and determine:
-1. If there's a new message from someone other than "${myUsername}" (who is the user you're impersonating)
-2. If so, extract that new message and the sender's name
-3. ONLY respond with new messages sent by others, never with messages sent by "${myUsername}"
+      const systemPrompt = `You are analyzing WhatsApp OCR text to detect new messages that require a response.
+
+IMPORTANT CONTEXT FOR WHATSAPP OCR:
+1. WhatsApp OCR text is messy and does not clearly label message senders
+2. Your last response was: "${lastAIResponse || 'No previous response yet'}"
+3. Recent conversation history:
+${recentChatHistory || 'No recent history available'}
+
+COMMON WHATSAPP OCR PATTERNS:
+- Messages often appear with timestamps like "02:53 AM"
+- WhatsApp may show "You:" for messages you sent
+- Messages may appear without clear attribution
+- Names in group chats may be highlighted or appear before messages
+- UI elements like "Type a message" appear in the OCR
+
+YOUR TASK:
+Compare the previous OCR text with the current OCR text to find NEW MESSAGES from other people (not from you).
+Specifically:
+1. Ignore any text that matches or contains your last response
+2. Focus on text that appears to be new and is not from you
+3. Look for changes in conversation flow that indicate someone sent a new message
+4. Pay special attention to text near timestamps that weren't in the previous OCR
 
 Return your analysis as JSON in this format:
 {
   "newMessageDetected": boolean,
   "shouldReply": boolean,
-  "message": "the new message text if any",
-  "sender": "the sender's name",
-  "reasoning": "brief explanation of your decision"
-}
-
-If there are multiple new messages, focus on the most recent one. Include any context about the conversation that would help generate an appropriate response.`;
+  "message": "the new message text if found",
+  "sender": "the sender name if detectable",
+  "reasoning": "explanation of why you think this is a new message from someone else"
+}`;
       
       const messages = [
         { role: "system", content: systemPrompt },
@@ -293,9 +310,7 @@ If there are multiple new messages, focus on the most recent one. Include any co
       const data = await response.json();
       const analysisText = data.choices[0].message.content;
       
-      // Try to parse the response as JSON
       try {
-        // Extract JSON object if embedded in markdown or text
         const jsonMatch = analysisText.match(/```json\s*([\s\S]*?)\s*```/) || 
                          analysisText.match(/{[\s\S]*}/);
                          
@@ -303,7 +318,6 @@ If there are multiple new messages, focus on the most recent one. Include any co
         return JSON.parse(jsonStr);
       } catch (e) {
         console.error("Failed to parse conversation analysis as JSON:", e);
-        // Return a default structured response using the text
         return {
           newMessageDetected: analysisText.toLowerCase().includes("new message detected") || 
                              analysisText.toLowerCase().includes("should reply"),
@@ -323,6 +337,61 @@ If there are multiple new messages, focus on the most recent one. Include any co
     }
   }, [currentModel, defaultOptions.apiKey]);
 
+  const generateInitialGreeting = useCallback(async (ocrText: string) => {
+    setIsProcessing(true);
+    setError(null);
+    
+    try {
+      const systemPrompt = `You're looking at a WhatsApp conversation through OCR and need to initiate a friendly chat.`;
+      
+      const userPrompt = `OCR Text from WhatsApp:
+${ocrText}
+
+Your task:
+1. Create a short, friendly initial greeting to start a conversation
+2. Keep it natural and conversational, like something a real person would say
+3. Make it 1-2 sentences at most
+4. Use at most one emoji if appropriate
+5. If you can determine the context from the OCR text, make your greeting relevant
+6. If you can tell who you're talking to, personalize the greeting
+7. Avoid using any specific names or specifics of that person
+Generate ONLY the greeting message with no explanations or additional text.`;
+
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ];
+
+      const response = await fetch('/api/nebius/generate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${defaultOptions.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          messages: messages,
+          temperature: 0.7, // Slightly higher temperature for more natural greeting
+          max_tokens: 100 // Short greeting only needs a few tokens
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to generate greeting');
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content.trim();
+    } catch (error) {
+      console.error('Nebius greeting generation failed:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error');
+      return "Hey there! 👋 How's your day going?"; // Fallback greeting
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [currentModel, defaultOptions.apiKey]);
+
   return {
     isProcessing,
     error,
@@ -335,6 +404,7 @@ If there are multiple new messages, focus on the most recent one. Include any co
     generateChatResponse,
     analyzeOCRText,
     suggestReplies,
-    analyzeConversation // Add the new function to the return value
+    analyzeConversation,
+    generateInitialGreeting
   };
 }

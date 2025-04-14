@@ -196,27 +196,46 @@ Analyze this content and extract:
   const analyzeConversation = useCallback(async (
     previousOcrText: string,
     currentOcrText: string,
-    myUsername: string
+    myUsername: string,
+    lastAIResponse?: string,
+    recentChatHistory?: string
   ) => {
     setIsProcessing(true);
     setError(null);
     
     try {
-      const prompt = `You are analyzing WhatsApp conversation for a chat automation system. Compare the previous OCR text with the current OCR text and determine:
-1. If there's a new message from someone other than "${myUsername}" (who is the user you're impersonating)
-2. If so, extract that new message and the sender's name
-3. ONLY respond with new messages sent by others, never with messages sent by "${myUsername}"
+      // Enhanced prompt specifically for WhatsApp OCR patterns
+      const prompt = `You are analyzing WhatsApp OCR text to detect new messages that require a response.
+
+IMPORTANT CONTEXT FOR WHATSAPP OCR:
+1. WhatsApp OCR text is messy and does not clearly label message senders
+2. Your last response was: "${lastAIResponse || 'No previous response yet'}"
+3. Recent conversation history:
+${recentChatHistory || 'No recent history available'}
+
+COMMON WHATSAPP OCR PATTERNS:
+- Messages often appear with timestamps like "02:53 AM"
+- WhatsApp may show "You:" for messages you sent
+- Messages may appear without clear attribution
+- Names in group chats may be highlighted or appear before messages
+- UI elements like "Type a message" appear in the OCR
+
+YOUR TASK:
+Compare the previous OCR text with the current OCR text to find NEW MESSAGES from other people (not from you).
+Specifically:
+1. Ignore any text that matches or contains your last response
+2. Focus on text that appears to be new and is not from you
+3. Look for changes in conversation flow that indicate someone sent a new message
+4. Pay special attention to text near timestamps that weren't in the previous OCR
 
 Return your analysis as JSON in this format:
 {
   "newMessageDetected": boolean,
   "shouldReply": boolean,
-  "message": "the new message text if any",
-  "sender": "the sender's name",
-  "reasoning": "brief explanation of your decision"
+  "message": "the new message text if found",
+  "sender": "the sender name if detectable",
+  "reasoning": "explanation of why you think this is a new message from someone else"
 }
-
-If there are multiple new messages, focus on the most recent one. Include any context about the conversation that would help generate an appropriate response.
 
 Previous OCR text:
 ${previousOcrText}
@@ -254,6 +273,33 @@ ${currentOcrText}`;
     }
   }, [callOllama]);
 
+  const generateInitialGreeting = useCallback(async (ocrText: string) => {
+    setIsProcessing(true);
+    setError(null);
+    
+    try {
+      const prompt = `You're looking at a WhatsApp conversation through OCR and need to initiate a friendly chat.
+
+OCR Text from WhatsApp:
+${ocrText}
+
+Your task:
+1. Create a short, friendly initial greeting to start a conversation
+2. Keep it natural and conversational, like something a real person would say
+3. Make it 1-2 sentences at most
+4. Use at most one emoji if appropriate
+5. If you can determine the context from the OCR text, make your greeting relevant
+6. If you can tell who you're talking to, personalize the greeting
+
+Generate ONLY the greeting message with no explanations or additional text.`;
+      
+      const greeting = await callOllama(prompt);
+      return greeting.trim();
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [callOllama]);
+
   return {
     isProcessing,
     error,
@@ -266,6 +312,7 @@ ${currentOcrText}`;
     generateChatResponse,
     analyzeOCRText,
     suggestReplies,
-    analyzeConversation
+    analyzeConversation,
+    generateInitialGreeting
   };
 }
