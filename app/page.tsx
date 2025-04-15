@@ -3,7 +3,7 @@
 import { SettingsProvider } from "@/lib/settings-provider";
 import { ClientOnly } from "@/lib/client-only";
 import { Inter } from "next/font/google";
-import ChatAutomation from "@/components/ready-to-use-examples/chat-automation";
+import ChatAutomation from "@/components/chat-automation";
 
 const inter = Inter({
   subsets: ["latin"],
