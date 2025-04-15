@@ -11,6 +11,12 @@ export async function monitorChat({
   monitoringTimerRef,
   addLog,
   analyzeConversationChanges
+}: {
+  monitoringRef: React.MutableRefObject<boolean>;
+  processingMessageRef: React.MutableRefObject<boolean>;
+  monitoringTimerRef: React.MutableRefObject<NodeJS.Timeout | null>;
+  addLog: (message: string) => void;
+  analyzeConversationChanges: (text: string) => void;
 }) {
   console.log("monitorChat called, isMonitoring:", monitoringRef.current);
   // Check the ref, not the state variable, to get the most up-to-date value
@@ -49,10 +55,18 @@ export async function monitorChat({
     });
     console.log("OCR API response received:", result);
 
-    if (result?.data?.length > 0) {
+    if (result?.data && result.data.length > 0) {
       console.log("OCR data found, items:", result.data.length);
-      const text = result.data[0].content?.text;
-      if (text) {
+      
+      // Check if it's OCR content and has a text property
+      const content = result.data[0].content;
+      // Type guard to ensure content has a text property
+      const isOCRContent = (content: any): content is { text: string } => {
+        return content && typeof content.text === 'string';
+      };
+      
+      if (isOCRContent(content)) {
+        const text = content.text;
         console.log("OCR text found, length:", text.length);
         addLog(`OCR text captured (${text.length} chars)`);
         analyzeConversationChanges(text);

@@ -1,5 +1,23 @@
 import { pipe } from "@screenpipe/browser";
 
+// Define interfaces for Screenpipe results
+interface ScreenpipeOcrContent {
+  text: string;
+  timestamp?: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeOcrDataItem {
+  content: ScreenpipeOcrContent;
+  type?: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeQueryResult {
+  data: ScreenpipeOcrDataItem[];
+  [key: string]: any;
+}
+
 export interface WhatsAppMonitorOptions {
   pollingIntervalMs?: number;
   timeWindowMs?: number;
@@ -102,15 +120,15 @@ export function monitorWhatsAppConversations(
         limit,
         // Don't include frames by default to reduce data transfer
         includeFrames: false
-      });
+      }) as ScreenpipeQueryResult;
       
       // Check if we have results
-      if (results?.data?.length > 0) {
+      if (results?.data && results.data.length > 0) {
         const latestItem = results.data[0];
         
         if (latestItem.type === "OCR" && latestItem.content) {
           const ocrText = latestItem.content.text;
-          const timestamp = latestItem.content.timestamp;
+          const timestamp = latestItem.content.timestamp || new Date().toISOString();
           
           // Handle baseline initialization
           if (!baselineInitialized) {

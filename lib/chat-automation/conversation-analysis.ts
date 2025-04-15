@@ -1,5 +1,5 @@
 // Conversation analysis utilities
-import { ChatMessage } from "./types";
+import { ChatMessage, AppType } from "./types";
 
 /**
  * Analyzes WhatsApp conversation changes to detect new messages
@@ -22,6 +22,24 @@ export async function analyzeConversationChanges({
   messageHistory,
   setChatHistory,
   generateAndSendResponse
+}: {
+  currentText: string;
+  previousText?: string;
+  previousOcrText: string;
+  processingMessageRef: React.MutableRefObject<boolean>;
+  setLastOcrText: (text: string) => void;
+  setPreviousOcrText: (text: string) => void;
+  lastAIResponseRef: React.MutableRefObject<string>;
+  chatHistory: ChatMessage[];
+  aiProvider: "ollama" | "nebius";
+  ollama: any;
+  nebius: any;
+  myUsername: string;
+  addLog: (message: string) => void;
+  setLastMessage: (message: string) => void;
+  messageHistory: React.MutableRefObject<string[]>;
+  setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  generateAndSendResponse: (message: string) => void;
 }) {
   console.log("analyzeConversationChanges called");
   if (!currentText) {
@@ -150,6 +168,24 @@ export async function analyzeDiscordConversation({
   messageHistory,
   setChatHistory,
   generateAndSendResponse
+}: {
+  currentText: string;
+  previousText?: string;
+  discordContext: { type?: string; username?: string; channelName?: string };
+  processingMessageRef: React.MutableRefObject<boolean>;
+  setLastOcrText: (text: string) => void;
+  setPreviousOcrText: (text: string) => void;
+  lastAIResponseRef: React.MutableRefObject<string>;
+  chatHistory: ChatMessage[];
+  aiProvider: "ollama" | "nebius";
+  ollama: any;
+  nebius: any;
+  myUsername: string;
+  addLog: (message: string) => void;
+  setLastMessage: (message: string) => void;
+  messageHistory: React.MutableRefObject<string[]>;
+  setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  generateAndSendResponse: (message: string) => void;
 }) {
   console.log("analyzeDiscordConversation called for context:", discordContext?.type);
   if (!currentText) {

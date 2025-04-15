@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { ClipboardItem } from './use-clipboard-history';
 
 interface NebiusOptions {
   model?: string;
@@ -243,7 +242,7 @@ Analyze this content and extract:
           try {
             return JSON.parse(`[${match[1]}]`);
           } catch {
-            return suggestions.split('\n').filter(line => line.trim().startsWith('"') || line.trim().startsWith("'"));
+            return suggestions.split('\n').filter((line: string) => line.trim().startsWith('"') || line.trim().startsWith("'"));
           }
         }
         return [suggestions];

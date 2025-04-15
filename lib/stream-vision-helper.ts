@@ -1,5 +1,35 @@
 import { pipe, VisionEvent, VisionStreamResponse } from "@screenpipe/browser";
 
+// Define interfaces for Screenpipe results
+interface ScreenpipeOcrContent {
+  text: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeAudioContent {
+  transcript?: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeUiContent {
+  elements?: any[];
+  [key: string]: any;
+}
+
+type ScreenpipeContent = ScreenpipeOcrContent | ScreenpipeAudioContent | ScreenpipeUiContent;
+
+interface ScreenpipeDataItem {
+  content: ScreenpipeContent;
+  type: string;
+  timestamp?: number;
+  [key: string]: any;
+}
+
+interface ScreenpipeQueryResult {
+  data: ScreenpipeDataItem[];
+  [key: string]: any;
+}
+
 export interface StreamVisionOptions {
   includeImages?: boolean;
   timeoutMs?: number;
@@ -84,10 +114,12 @@ export function startReliableVisionStream(options: StreamVisionOptions = {}): St
       if (!hasReceivedEvent && retryCount > 0) {
         console.log("[StreamVisionHelper] Checking if regular OCR works...");
         try {
-          const ocrResult = await pipe.queryScreenpipe({ contentType: 'ocr', limit: 1 });
-          if (ocrResult?.data?.length && ocrResult.data[0].content?.text) {
-            console.log("[StreamVisionHelper] Regular OCR is working, length:", 
-                        ocrResult.data[0].content.text.length);
+          const ocrResult = await pipe.queryScreenpipe({ contentType: 'ocr', limit: 1 }) as ScreenpipeQueryResult;
+          if (ocrResult?.data?.length && 
+              ocrResult.data[0].type === 'OCR' && 
+              (ocrResult.data[0].content as ScreenpipeOcrContent)?.text) {
+            console.log("[StreamVisionHelper] Regular OCR is working, length:",
+                        (ocrResult.data[0].content as ScreenpipeOcrContent).text.length);
           } else {
             console.log("[StreamVisionHelper] Regular OCR returned no results");
           }

@@ -1,6 +1,6 @@
 // Greeting utilities for chat automation
 import { sendChatResponse } from "./utils";
-import { ChatMessage } from "./types";
+import { ChatMessage, AppType } from "./types";
 
 /**
  * Sends an initial greeting for WhatsApp when no conversation is detected
@@ -19,6 +19,20 @@ export async function sendInitialGreeting({
   addLog,
   myUsername,
   messageHistory
+}: {
+  ocrText: string;
+  monitoringRef: React.MutableRefObject<boolean>;
+  initialGreetingSentRef: React.MutableRefObject<boolean>;
+  processingMessageRef: React.MutableRefObject<boolean>;
+  aiProvider: "ollama" | "nebius";
+  ollama: any;
+  nebius: any;
+  lastAIResponseRef: React.MutableRefObject<string>;
+  setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  selectedApp: AppType;
+  addLog: (message: string) => void;
+  myUsername: string;
+  messageHistory: React.MutableRefObject<string[]>;
 }) {
   // Only proceed if we're still monitoring and haven't sent a greeting yet
   if (!monitoringRef.current || initialGreetingSentRef.current || processingMessageRef.current) {
@@ -100,6 +114,21 @@ export async function sendInitialDiscordGreeting({
   addLog,
   myUsername,
   messageHistory
+}: {
+  ocrText: string;
+  discordContext: { type?: string; username?: string; channelName?: string };
+  monitoringRef: React.MutableRefObject<boolean>;
+  initialGreetingSentRef: React.MutableRefObject<boolean>;
+  processingMessageRef: React.MutableRefObject<boolean>;
+  aiProvider: "ollama" | "nebius";
+  ollama: any;
+  nebius: any;
+  lastAIResponseRef: React.MutableRefObject<string>;
+  setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  selectedApp: AppType;
+  addLog: (message: string) => void;
+  myUsername: string;
+  messageHistory: React.MutableRefObject<string[]>;
 }) {
   // Only proceed if we're still monitoring and haven't sent a greeting yet
   if (!monitoringRef.current || initialGreetingSentRef.current || processingMessageRef.current) {

@@ -1,5 +1,5 @@
 // AI response generation utilities
-import { ChatMessage } from "./types";
+import { ChatMessage, AppType } from "./types";
 
 /**
  * Generates and sends an AI response to a user message
@@ -20,6 +20,22 @@ export async function generateAndSendAIResponse({
   myUsername,
   messageHistory,
   processingMessageRef
+}: {
+  message: string;
+  lastOcrText: string;
+  aiProvider: "ollama" | "nebius";
+  ollama: any;
+  nebius: any;
+  nebiusApiKey: string;
+  lastAIResponseRef: React.MutableRefObject<string>;
+  addLog: (message: string) => void;
+  setChatHistory: { get?: () => ChatMessage[], set?: React.Dispatch<React.SetStateAction<ChatMessage[]>> } | React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  monitoringRef: React.MutableRefObject<boolean>;
+  sendChatResponse: (response: string, app: AppType, logFn: (message: string) => void) => Promise<void>;
+  selectedApp: AppType;
+  myUsername: string;
+  messageHistory: React.MutableRefObject<string[]>;
+  processingMessageRef: React.MutableRefObject<boolean>;
 }) {
   console.log("generateAndSendResponse called for message:", message);
   try {
@@ -38,14 +54,16 @@ export async function generateAndSendAIResponse({
         response = "I'm still thinking about your last message. I'll respond in a moment.";
       } else {
         addLog("Generating response with Ollama");
-        response = await ollama.generateChatResponse(message, setChatHistory.get ? setChatHistory.get() : [], ocrContext);
+        const chatHistory = typeof setChatHistory === 'object' && setChatHistory.get ? setChatHistory.get() : [];
+        response = await ollama.generateChatResponse(message, chatHistory, ocrContext);
       }
     } else {
       if (nebius.isProcessing || !nebiusApiKey) {
         response = "Let me think about this for a moment.";
       } else {
         addLog("Generating response with Nebius");
-        response = await nebius.generateChatResponse(message, setChatHistory.get ? setChatHistory.get() : [], ocrContext);
+        const chatHistory = typeof setChatHistory === 'object' && setChatHistory.get ? setChatHistory.get() : [];
+        response = await nebius.generateChatResponse(message, chatHistory, ocrContext);
       }
     }
 
@@ -62,7 +80,7 @@ export async function generateAndSendAIResponse({
     };
     
     // Check if setChatHistory is a function or an object with set method
-    if (setChatHistory.set) {
+    if (typeof setChatHistory === 'object' && setChatHistory.set) {
       setChatHistory.set(prev => [...prev, newMessage]);
     } else if (typeof setChatHistory === 'function') {
       setChatHistory(prev => [...prev, newMessage]);

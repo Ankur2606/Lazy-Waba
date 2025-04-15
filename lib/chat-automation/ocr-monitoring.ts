@@ -2,6 +2,53 @@
 import { pipe } from "@screenpipe/browser";
 import { monitorWhatsAppConversations } from "@/lib/whatsapp-ocr-monitor";
 import { monitorDiscordConversations } from "@/lib/discord-ocr-monitor";
+import { MutableRefObject, RefObject } from "react";
+
+// Define interfaces for Screenpipe results
+interface ScreenpipeOcrContent {
+  text: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeOcrDataItem {
+  content: ScreenpipeOcrContent;
+  timestamp?: number;
+  [key: string]: any;
+}
+
+interface ScreenpipeQueryResult {
+  data: ScreenpipeOcrDataItem[];
+  [key: string]: any;
+}
+
+// Define interfaces for function parameters
+interface WhatsAppMonitoringParams {
+  setLastOcrText: (text: string) => void;
+  setPreviousOcrText: (text: string) => void;
+  setWhatsappMonitor: (monitor: any) => void;
+  initialGreetingTimerRef: MutableRefObject<NodeJS.Timeout | null>;
+  monitoringRef: RefObject<boolean>;
+  initialGreetingSentRef: MutableRefObject<boolean>;
+  processingMessageRef: RefObject<boolean>;
+  sendInitialGreeting: (initialText: string) => void;
+  addLog: (message: string) => void;
+  monitorChat: () => void;
+  analyzeConversationChanges: (text: string, previousText: string) => void;
+}
+
+interface DiscordMonitoringParams {
+  setLastOcrText: (text: string) => void;
+  setPreviousOcrText: (text: string) => void;
+  setDiscordMonitor: (monitor: any) => void;
+  initialGreetingTimerRef: MutableRefObject<NodeJS.Timeout | null>;
+  monitoringRef: RefObject<boolean>;
+  initialGreetingSentRef: MutableRefObject<boolean>;
+  processingMessageRef: RefObject<boolean>;
+  sendInitialDiscordGreeting: (initialText: string, context?: any) => void;
+  addLog: (message: string) => void;
+  monitorChat: () => void;
+  analyzeDiscordConversation: (text: string, previousText: string, discordContext?: any) => void;
+}
 
 /**
  * Starts WhatsApp-specific OCR monitoring
@@ -18,7 +65,7 @@ export async function setupWhatsAppMonitoring({
   addLog,
   monitorChat,
   analyzeConversationChanges
-}) {
+}: WhatsAppMonitoringParams) {
   // Reset the initial greeting flag
   initialGreetingSentRef.current = false;
   
@@ -30,10 +77,10 @@ export async function setupWhatsAppMonitoring({
       contentType: "ocr",
       windowName: "WhatsApp",
       limit: 1,
-    });
+    }) as ScreenpipeQueryResult;
     
-    if (result?.data?.length > 0) {
-      const initialText = result.data[0].content?.text || "";
+    if (result?.data && result.data.length > 0) {
+      const initialText = result.data[0]?.content?.text || "";
       setLastOcrText(initialText);
       setPreviousOcrText(initialText); // Store as previous OCR text too
       addLog(`Established baseline OCR (${initialText.length} chars)`);
@@ -113,7 +160,7 @@ export async function setupDiscordMonitoring({
   addLog,
   monitorChat,
   analyzeDiscordConversation
-}) {
+}: DiscordMonitoringParams) {
   // Reset the initial greeting flag
   initialGreetingSentRef.current = false;
   
@@ -125,10 +172,10 @@ export async function setupDiscordMonitoring({
       contentType: "ocr",
       appName: "Discord",
       limit: 1,
-    });
+    }) as ScreenpipeQueryResult;
     
-    if (result?.data?.length > 0) {
-      const initialText = result.data[0].content?.text || "";
+    if (result?.data && result.data.length > 0) {
+      const initialText = result.data[0]?.content?.text || "";
       setLastOcrText(initialText);
       setPreviousOcrText(initialText); // Store as previous OCR text too
       addLog(`Established baseline OCR (${initialText.length} chars)`);

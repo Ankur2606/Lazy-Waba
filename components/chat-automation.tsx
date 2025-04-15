@@ -11,7 +11,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Import from our refactored modules
 import { AppType, ChatMessage } from "@/lib/chat-automation/types"; 
 import { sendChatResponse, openWhatsAppDesktop, openDiscord } from "@/lib/chat-automation/utils";
 import { useLogging } from "@/lib/chat-automation/hooks";
@@ -21,31 +20,28 @@ import { sendInitialGreeting, sendInitialDiscordGreeting } from "@/lib/chat-auto
 import { analyzeConversationChanges, analyzeDiscordConversation } from "@/lib/chat-automation/conversation-analysis";
 import { generateAndSendAIResponse } from "@/lib/chat-automation/ai-responses";
 import { monitorChat } from "@/lib/chat-automation/monitor";
+import { WhatsAppMonitorResult } from "@/lib/whatsapp-ocr-monitor";
+import { DiscordMonitorResult } from "@/lib/discord-ocr-monitor";
 
 const ChatAutomation: React.FC = () => {
-  // Use our custom hooks
   const { logs, addLog } = useLogging();
   const { healthStatus, checkHealthStatus } = useHealthMonitoring();
   const { toast } = useToast();
-  
-  // App selection state
+
   const [selectedApp, setSelectedApp] = useState<AppType>("whatsapp");
 
-  // Show warning toast when Discord is selected
   const handleAppSelection = (app: AppType) => {
     setSelectedApp(app);
-    
     if (app === "discord") {
       toast({
         title: "Discord Integration - Beta",
-        description: "The Discord feature is currently in beta and may be unstable. Some functionality might not work as expected.",
-        variant: "warning",
+        description: "The Discord feature is in beta and may be unstable.",
+        variant: "default",
         duration: 5000,
       });
     }
   };
 
-  // Monitoring and OCR state
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [lastMessage, setLastMessage] = useState("");
   const [lastOcrText, setLastOcrText] = useState("");
@@ -60,7 +56,6 @@ const ChatAutomation: React.FC = () => {
   const [myUsername, setMyUsername] = useLocalStorage<string>("myUsername", "You");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
-  // AI provider and minimization settings
   const [aiProvider, setAiProvider] = useLocalStorage<"ollama" | "nebius">("aiProvider", "ollama");
   const [nebiusApiKey, setNebiusApiKey] = useLocalStorage<string>("nebiusApiKey", "");
   const [ollamaModel, setOllamaModel] = useLocalStorage<string>("ollamaModel", "qwen2.5");
@@ -68,18 +63,12 @@ const ChatAutomation: React.FC = () => {
   const [isMinimized, setIsMinimized] = useLocalStorage<boolean>("chatAutoMinimized", false);
   const [isConfiguring, setIsConfiguring] = useLocalStorage<boolean>("isConfiguring", true);
 
-  // Initialize AI hooks
   const ollama = useOllama({ model: ollamaModel });
-  const nebius = useNebius({ 
-    model: nebiusModel, 
-    apiKey: nebiusApiKey 
-  });
+  const nebius = useNebius({ model: nebiusModel, apiKey: nebiusApiKey });
 
-  // Track the WhatsApp/Discord monitor instances
-  const [whatsappMonitor, setWhatsappMonitor] = useState(null);
-  const [discordMonitor, setDiscordMonitor] = useState(null);
+  const [whatsappMonitor, setWhatsappMonitor] = useState<WhatsAppMonitorResult | null>(null);
+  const [discordMonitor, setDiscordMonitor] = useState<DiscordMonitorResult | null>(null);
 
-  // Load models when API key is set
   useEffect(() => {
     if (nebiusApiKey && aiProvider === "nebius") {
       nebius.fetchAvailableModels();
@@ -92,11 +81,7 @@ const ChatAutomation: React.FC = () => {
     }
   }, [aiProvider]);
 
-  // Start monitoring
   const startMonitoring = () => {
-    console.log("startMonitoring called for app:", selectedApp);
-    
-    // Open the appropriate app based on selection
     if (selectedApp === "whatsapp") {
       addLog("Opening WhatsApp Desktop...");
       openWhatsAppDesktop(addLog);
@@ -106,58 +91,42 @@ const ChatAutomation: React.FC = () => {
     }
     
     addLog(`Starting monitoring for ${selectedApp} in 10 seconds...`);
-    
-    // Update both state and ref
     setIsMonitoring(true);
     monitoringRef.current = true;
     
-    // Wait 10 seconds before starting monitoring
-    console.log("Setting timeout for 10 seconds before monitoring begins");
     monitoringTimerRef.current = setTimeout(() => {
-      console.log("10-second timeout completed, starting actual monitoring");
       addLog("Now beginning chat monitoring");
-      
       if (selectedApp === "whatsapp") {
-        // Use our refactored WhatsApp OCR monitor
         startWhatsAppMonitoring();
       } else if (selectedApp === "discord") {
-        // Use our refactored Discord OCR monitor
         startDiscordMonitoring();
       } else {
-        // Use the original approach for other apps
         handleMonitorChat();
       }
-    }, 10000); // 10 seconds for the app to open
+    }, 10000);
   };
 
-  // Stop monitoring
   const stopMonitoring = () => {
-    console.log("stopMonitoring called");
     setIsMonitoring(false);
-    monitoringRef.current = false; // Update the ref
+    monitoringRef.current = false;
     
-    // Stop the WhatsApp monitor if active
     if (whatsappMonitor) {
       whatsappMonitor.stop();
       setWhatsappMonitor(null);
     }
 
-    // Stop the Discord monitor if active
     if (discordMonitor) {
       discordMonitor.stop();
       setDiscordMonitor(null);
     }
     
-    // Clear any timers
     if (monitoringTimerRef.current) {
-      console.log("Clearing monitoring timeout/interval");
       clearTimeout(monitoringTimerRef.current);
     }
     
     addLog(`Stopped monitoring ${selectedApp}`);
   };
 
-  // Function to handle WhatsApp monitoring using our refactored utility
   const startWhatsAppMonitoring = () => {
     setupWhatsAppMonitoring({
       setLastOcrText,
@@ -174,7 +143,6 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Function to handle Discord monitoring using our refactored utility
   const startDiscordMonitoring = () => {
     setupDiscordMonitoring({
       setLastOcrText,
@@ -191,9 +159,7 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Toggle monitoring
   const toggleMonitoring = () => {
-    console.log("toggleMonitoring called, current state:", isMonitoring);
     if (isMonitoring) {
       stopMonitoring();
     } else {
@@ -201,8 +167,7 @@ const ChatAutomation: React.FC = () => {
     }
   };
 
-  // Wrapper for analyzeConversationChanges to handle parameters
-  const handleAnalyzeConversation = (currentText, prevText?) => {
+  const handleAnalyzeConversation = (currentText: string, prevText?: string) => {
     analyzeConversationChanges({
       currentText,
       previousText: prevText,
@@ -224,8 +189,7 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Wrapper for analyzeDiscordConversation to handle parameters
-  const handleAnalyzeDiscordConversation = (currentText, prevText, discordContext) => {
+  const handleAnalyzeDiscordConversation = (currentText: string, prevText: string | undefined, discordContext: { type?: string; username?: string; channelName?: string }) => {
     analyzeDiscordConversation({
       currentText,
       previousText: prevText,
@@ -247,8 +211,7 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Wrapper for generateAndSendAIResponse to handle parameters
-  const handleGenerateAndSendResponse = (message) => {
+  const handleGenerateAndSendResponse = (message: string) => {
     generateAndSendAIResponse({
       message,
       lastOcrText,
@@ -271,8 +234,7 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Wrapper for sendInitialGreeting to handle parameters
-  const handleInitialGreeting = (ocrText) => {
+  const handleInitialGreeting = (ocrText: string) => {
     sendInitialGreeting({
       ocrText,
       monitoringRef,
@@ -290,8 +252,7 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Wrapper for sendInitialDiscordGreeting to handle parameters
-  const handleInitialDiscordGreeting = (ocrText, discordContext) => {
+  const handleInitialDiscordGreeting = (ocrText: string, discordContext: { type?: string; username?: string; channelName?: string }) => {
     sendInitialDiscordGreeting({
       ocrText,
       discordContext,
@@ -310,7 +271,6 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Wrapper for monitorChat to handle parameters
   const handleMonitorChat = () => {
     monitorChat({
       monitoringRef,
@@ -321,18 +281,14 @@ const ChatAutomation: React.FC = () => {
     });
   };
 
-  // Clean up monitoring timers on unmount
   useEffect(() => {
-    console.log("Component mounted, setting up cleanup for monitoring timer");
     return () => {
-      console.log("Component unmounting, cleaning up monitoring timer");
       if (monitoringTimerRef.current) {
         clearTimeout(monitoringTimerRef.current);
       }
     };
   }, []);
 
-  // Render minimized UI
   if (isMinimized && !isConfiguring) {
     return (
       <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-800 shadow-lg rounded-md p-3 z-50 border border-gray-200 dark:border-gray-700 flex items-center space-x-2">
@@ -340,7 +296,7 @@ const ChatAutomation: React.FC = () => {
         <div className="flex-1">
           <div className="text-sm font-medium">Chat Automation</div>
           <div className="text-xs text-gray-500">
-            {isMonitoring ? 'Active - ' + selectedApp : 'Inactive'}
+            {isMonitoring ? `Active - ${selectedApp}` : "Inactive"}
           </div>
         </div>
         {isMonitoring && (
@@ -355,7 +311,6 @@ const ChatAutomation: React.FC = () => {
     );
   }
 
-  // Main UI
   return (
     <div className="p-4 border rounded-lg shadow-md space-y-4">
       <div className="flex justify-between items-center">
@@ -506,7 +461,7 @@ const ChatAutomation: React.FC = () => {
               />
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Enter your username as it appears in the chat for better message detection
+              Enter your username as it appears in the chat.
             </p>
           </div>
 
@@ -559,7 +514,7 @@ const ChatAutomation: React.FC = () => {
             )}
           </Button>
           <div className="text-xs text-gray-500 mt-1">
-            You'll have 10 seconds to switch to your chat application
+            You&apos;ll have 10 seconds to switch to your chat application
           </div>
         </div>
 
@@ -598,7 +553,6 @@ const ChatAutomation: React.FC = () => {
                   addLog(`Manual OCR Error: ${error}`);
                   return;
                 }
-
                 if (data?.data?.length > 0) {
                   const text = data.data[0].content?.text;
                   if (text) {

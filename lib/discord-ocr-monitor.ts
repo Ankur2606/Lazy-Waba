@@ -32,6 +32,24 @@ export interface DiscordMonitorResult {
   getCurrentContext: () => DiscordContext | null;
 }
 
+// Define interfaces for Screenpipe results
+interface ScreenpipeOcrContent {
+  text: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeOcrDataItem {
+  content: ScreenpipeOcrContent;
+  timestamp?: number;
+  type?: string;
+  [key: string]: any;
+}
+
+interface ScreenpipeQueryResult {
+  data: ScreenpipeOcrDataItem[];
+  [key: string]: any;
+}
+
 /**
  * Detects Discord context from OCR text
  * Identifies if we're in a server channel or direct message
@@ -182,7 +200,7 @@ export function monitorDiscordConversations(
         limit,
         // Don't include frames by default to reduce data transfer
         includeFrames: false
-      });
+      }) as ScreenpipeQueryResult;
       
       // Check if we have results
       if (results?.data?.length > 0) {
