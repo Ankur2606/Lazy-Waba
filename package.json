@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "publish": "bunx --bun @screenpipe/dev@latest pipe publish --name example-pipe"
+    "publish": "bunx --bun @screenpipe/dev@latest pipe publish --name Always-Online"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.3",
